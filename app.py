@@ -7,7 +7,6 @@ import json
 
 # 1. 페이지 설정
 st.set_page_config(page_title="글로벌 경제 대시보드", layout="wide")
-
 st.title(f"🌏 글로벌 마켓 & 경제 브리핑")
 st.markdown(f"**{datetime.date.today()}** 기준, 세계 주요 지수 및 AI 분석 리포트입니다.")
 
@@ -51,14 +50,32 @@ def get_financial_data():
             
     return pd.DataFrame(data_list)
 
-# 3. AI 요약 함수 (여러 모델 순차 시도)
+# 3. 사용 가능한 모델 자동 찾기 함수
+def find_available_model(api_key):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            # 사용 가능한 모델 중에서 'generateContent' 기능이 있는 것 찾기
+            for model in data.get('models', []):
+                if 'generateContent' in model.get('supportedGenerationMethods', []):
+                    return model['name'] # 예: models/gemini-1.5-flash
+        return None
+    except:
+        return None
+
+# 4. AI 요약 함수
 def get_ai_summary(df_text):
-    # 시도할 모델 목록 (우선순위 순서대로)
-    models_to_try = [
-        "gemini-1.5-flash", 
-        "gemini-pro", 
-        "gemini-1.5-pro-latest"
-    ]
+    # 1. 내 키로 쓸 수 있는 모델을 먼저 찾는다
+    model_name = find_available_model(api_key)
+    
+    if not model_name:
+        return "⚠️ API 키로 사용할 수 있는 모델을 찾지 못했습니다. API 키를 새로 발급받아 보세요."
+
+    # 2. 찾은 모델로 요청을 보낸다
+    # model_name에는 이미 'models/'가 포함되어 있으므로 URL에 바로 붙임
+    url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
     
     prompt = f"""
     너는 경제 전문가야. 아래 데이터를 보고 한국인 투자자를 위한 오늘의 경제 뉴스 10가지를 요약해줘.
@@ -72,29 +89,17 @@ def get_ai_summary(df_text):
         "contents": [{"parts": [{"text": prompt}]}]
     }
     
-    last_error = ""
-    
-    # 모델 하나씩 돌아가면서 시도
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        try:
-            response = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(payload))
+    try:
+        response = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(payload))
+        
+        if response.status_code == 200:
+            result = response.json()
+            return f"✅ **연결 성공 (사용 모델: {model_name})**\n\n" + result['candidates'][0]['content']['parts'][0]['text']
+        else:
+            return f"⚠️ 오류 발생: {response.text}"
             
-            if response.status_code == 200:
-                # 성공하면 바로 결과 반환하고 함수 종료
-                result = response.json()
-                return f"✅ **사용된 모델: {model_name}**\n\n" + result['candidates'][0]['content']['parts'][0]['text']
-            else:
-                # 실패하면 에러 저장해두고 다음 모델 시도
-                last_error = f"{model_name} 실패: {response.text}"
-                continue
-                
-        except Exception as e:
-            last_error = str(e)
-            continue
-            
-    # 모든 모델이 실패했을 경우
-    return f"⚠️ 모든 모델 연결 실패.\n마지막 에러: {last_error}\n\n(API 키가 'AI Studio'에서 생성된 것인지 확인해주세요.)"
+    except Exception as e:
+        return f"⚠️ 연결 실패: {str(e)}"
 
 # --- 화면 구성 ---
 st.header("📊 주요 지표")
@@ -106,7 +111,7 @@ for index, row in df.iterrows():
 
 st.divider()
 
-st.info("AI 분석 버튼을 누르면, 작동 가능한 구글 모델을 자동으로 찾아 분석합니다.")
+st.info("버튼을 누르면 내 계정에서 사용 가능한 모델을 자동으로 찾아 분석합니다.")
 if st.button("AI 리포트 생성"):
-    with st.spinner("최적의 Gemini 모델을 찾는 중..."):
+    with st.spinner("사용 가능한 모델 검색 및 분석 중..."):
         st.markdown(get_ai_summary(df.to_string()))
