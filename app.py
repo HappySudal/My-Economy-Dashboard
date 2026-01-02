@@ -1,7 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import requests # 직통 연결을 위한 도구
+import requests 
 import datetime
 import json
 
@@ -51,12 +51,15 @@ def get_financial_data():
             
     return pd.DataFrame(data_list)
 
-# 3. AI 요약 함수 (requests를 사용한 직통 연결)
+# 3. AI 요약 함수 (여러 모델 순차 시도)
 def get_ai_summary(df_text):
-    # 구글 Gemini API 주소 (gemini-1.5-flash 사용)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    # 시도할 모델 목록 (우선순위 순서대로)
+    models_to_try = [
+        "gemini-1.5-flash", 
+        "gemini-pro", 
+        "gemini-1.5-pro-latest"
+    ]
     
-    # AI에게 보낼 편지 내용
     prompt = f"""
     너는 경제 전문가야. 아래 데이터를 보고 한국인 투자자를 위한 오늘의 경제 뉴스 10가지를 요약해줘.
     특히 환율, 유가, 반도체 대장주(삼성전자, TSMC)의 흐름을 잘 짚어줘.
@@ -65,26 +68,33 @@ def get_ai_summary(df_text):
     형식: 마크다운, 해요체.
     """
     
-    # 데이터 포장
     payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
+        "contents": [{"parts": [{"text": prompt}]}]
     }
     
-    try:
-        # 우체통에 넣기 (POST 요청)
-        response = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(payload))
-        
-        # 답장 확인
-        if response.status_code == 200:
-            result = response.json()
-            return result['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return f"⚠️ 오류 발생 (코드 {response.status_code}): {response.text}"
+    last_error = ""
+    
+    # 모델 하나씩 돌아가면서 시도
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        try:
+            response = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(payload))
             
-    except Exception as e:
-        return f"⚠️ 연결 실패: {str(e)}"
+            if response.status_code == 200:
+                # 성공하면 바로 결과 반환하고 함수 종료
+                result = response.json()
+                return f"✅ **사용된 모델: {model_name}**\n\n" + result['candidates'][0]['content']['parts'][0]['text']
+            else:
+                # 실패하면 에러 저장해두고 다음 모델 시도
+                last_error = f"{model_name} 실패: {response.text}"
+                continue
+                
+        except Exception as e:
+            last_error = str(e)
+            continue
+            
+    # 모든 모델이 실패했을 경우
+    return f"⚠️ 모든 모델 연결 실패.\n마지막 에러: {last_error}\n\n(API 키가 'AI Studio'에서 생성된 것인지 확인해주세요.)"
 
 # --- 화면 구성 ---
 st.header("📊 주요 지표")
@@ -96,7 +106,7 @@ for index, row in df.iterrows():
 
 st.divider()
 
-st.info("AI 분석 버튼을 누르면 구글 Gemini가 분석을 시작합니다.")
+st.info("AI 분석 버튼을 누르면, 작동 가능한 구글 모델을 자동으로 찾아 분석합니다.")
 if st.button("AI 리포트 생성"):
-    with st.spinner("Gemini가 분석 중..."):
+    with st.spinner("최적의 Gemini 모델을 찾는 중..."):
         st.markdown(get_ai_summary(df.to_string()))
