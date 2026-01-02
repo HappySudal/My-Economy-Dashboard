@@ -16,14 +16,13 @@ if not api_key:
     st.error("설정(Secrets)에서 Google API 키를 넣어주세요.")
     st.stop()
 
-# 구글 Gemini 설정
+# 구글 Gemini 설정 (모델 변경: flash -> pro)
 genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-pro') 
 
 # 2. 데이터 수집 함수 (지수, 환율, 원자재, 대장주)
 @st.cache_data(ttl=3600) 
 def get_financial_data():
-    # 수집할 데이터 목록 (티커 추가됨)
     tickers = {
         # [주요 지수]
         "🇺🇸 S&P 500": "^GSPC",
@@ -36,7 +35,7 @@ def get_financial_data():
         "🇰🇷 원/달러 환율": "KRW=X",
         "🇺🇸 미국 10년물 국채": "^TNX",
         "🥇 금 선물": "GC=F",
-        "🛢️ WTI 원유": "CL=F", # 원유 추가
+        "🛢️ WTI 원유": "CL=F",
         
         # [각국 대장주]
         "🇺🇸 애플 (AAPL)": "AAPL",
@@ -103,14 +102,11 @@ st.caption("※ 데이터 로딩에 몇 초 정도 걸릴 수 있습니다.")
 
 df = get_financial_data()
 
-# 데이터를 보기 좋게 4열로 배치
 cols = st.columns(4)
 for index, row in df.iterrows():
     col = cols[index % 4]
     with col:
-        # 통화 단위 처리 (환율/원자재 등 구분)
         val_str = f"{row['현재가']:,.2f}"
-        
         st.metric(
             label=row['항목'],
             value=val_str,
