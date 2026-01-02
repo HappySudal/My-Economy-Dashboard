@@ -16,17 +16,11 @@ if not api_key:
     st.error("설정(Secrets)에서 Google API 키를 넣어주세요.")
     st.stop()
 
-# 구글 Gemini 설정 (가장 호환성 좋은 설정으로 변경)
+# 2. 구글 Gemini 설정 (가장 안정적인 'gemini-pro'로 고정)
 genai.configure(api_key=api_key)
+model = genai.GenerativeModel('gemini-pro') 
 
-# 모델 안전장치: 1.5-flash가 안되면 pro를 쓰도록 예외처리 하지는 않고,
-# 가장 범용적인 'gemini-1.5-flash'를 호출하되 에러를 명확히 표시
-try:
-    model = genai.GenerativeModel('gemini-1.5-flash')
-except:
-    model = genai.GenerativeModel('gemini-pro')
-
-# 2. 데이터 수집 함수
+# 3. 데이터 수집 함수
 @st.cache_data(ttl=3600) 
 def get_financial_data():
     tickers = {
@@ -60,18 +54,21 @@ def get_financial_data():
             
     return pd.DataFrame(data_list)
 
-# 3. AI 요약 함수
+# 4. AI 요약 함수
 def get_ai_summary(df_text):
     prompt = f"""
     너는 경제 전문가야. 아래 데이터를 보고 한국인 투자자를 위한 오늘의 경제 뉴스 10가지를 요약해줘.
+    특히 환율, 유가, 반도체 대장주(삼성전자, TSMC)의 흐름을 잘 짚어줘.
+    
     데이터: {df_text}
     형식: 마크다운, 해요체.
     """
     try:
+        # gemini-pro는 generate_content 함수를 그대로 사용
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"⚠️ AI 호출 에러: {str(e)}\n\n(잠시 후 다시 시도하거나, API 키가 정확한지 확인해주세요.)"
+        return f"⚠️ 에러 발생: {str(e)}\n\n(API 키가 올바른지 다시 확인해주세요.)"
 
 # --- 화면 구성 ---
 st.header("📊 주요 지표")
@@ -83,6 +80,7 @@ for index, row in df.iterrows():
 
 st.divider()
 
+st.info("AI 분석 버튼을 누르면 구글 Gemini Pro가 분석을 시작합니다.")
 if st.button("AI 리포트 생성"):
-    with st.spinner("분석 중..."):
+    with st.spinner("Gemini Pro가 분석 중..."):
         st.markdown(get_ai_summary(df.to_string()))
