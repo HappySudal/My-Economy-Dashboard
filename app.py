@@ -8,7 +8,7 @@ import json
 import feedparser
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Pro 경제 대시보드 v2.3", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Pro 경제 대시보드 v2.4", layout="wide", page_icon="📈")
 
 # 2. 커스텀 CSS (폰트 색상 강제 White 적용)
 st.markdown("""
@@ -19,7 +19,7 @@ st.markdown("""
         color: #FAFAFA;
     }
     
-    /* [수정 요청] 금융지표 텍스트(제목, 숫자) 강제 흰색 적용 */
+    /* 금융지표 텍스트(제목, 숫자) 강제 흰색 */
     [data-testid="stMetricLabel"] {
         color: #FFFFFF !important;
         font-size: 14px !important;
@@ -28,14 +28,12 @@ st.markdown("""
         color: #FFFFFF !important;
     }
 
-    /* 탭 메뉴: 폰트 14px, 흰색 */
+    /* 탭 메뉴 스타일 */
     button[data-baseweb="tab"] div p {
         font-size: 14px !important;
         font-weight: 600 !important;
         color: #FFFFFF !important;
     }
-    
-    /* 탭 선택되었을 때 강조 색상 */
     button[data-baseweb="tab"][aria-selected="true"] div p {
         color: #FF4B4B !important;
     }
@@ -55,7 +53,7 @@ st.markdown("""
         border: 1px solid white;
     }
     
-    /* 뉴스 카드 링크 스타일 */
+    /* 뉴스 링크 스타일 */
     a.news-link {
         text-decoration: none !important;
         color: #FAFAFA !important;
@@ -68,7 +66,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.title(f"📈 Pro Global Market Dashboard")
-st.markdown(f"**{datetime.date.today()}** 기준 | 2026년 최신 금융 트렌드 분석")
+st.markdown(f"**{datetime.date.today()}** 기준 | 선물·옵션, 국채, 크립토 통합 분석")
 
 # 사이드바: API 키
 api_key = st.secrets.get("GOOGLE_API_KEY")
@@ -77,21 +75,33 @@ if not api_key:
     st.stop()
 
 # ---------------------------------------------------------
-# [기능 1] 데이터 수집 및 차트
+# [기능 1] 데이터 수집 (선물/채권 확대 적용)
 # ---------------------------------------------------------
+# 총 16개 지표로 확장 (4열 x 4행 배치 최적화)
 ASSETS = {
+    # [1행] 한국 시장 & 크립토
     "🇰🇷 코스피": "^KS11",
     "🇰🇷 코스닥": "^KQ11",
-    "🇺🇸 S&P 500": "SPY",
-    "🇺🇸 나스닥 100": "QQQ",
     "🪙 비트코인": "BTC-USD",
     "💎 이더리움": "ETH-USD",
-    "💵 원/달러": "KRW=X",
+    
+    # [2행] 글로벌 주가지수 선물 (야간/글로벌 포함)
+    "🇺🇸 S&P500 선물": "ES=F",
+    "🇺🇸 나스닥 선물": "NQ=F",
+    "🇯🇵 니케이 선물": "NK=F",
+    "🇭🇰 항셍 지수": "^HSI",  # 중국 대용
+    
+    # [3행] 채권 금리 & 파생 (금리는 미국 TNX 기준, 나머지는 선물)
+    "🇺🇸 미 10년물 금리": "^TNX", # 금리(%)
+    "🇪🇺 유로번드 선물": "GBL=F", # 유럽 채권 가격
+    "🇯🇵 JGB 국채 선물": "JGB=F", # 일본 채권 가격
+    "🇰🇷 국채선물 3년": "KTB=F", # 한국 채권 (데이터 없을 시 제외됨)
+    
+    # [4행] 원자재 & 환율
     "🥇 금 선물": "GC=F",
     "🛢️ WTI 원유": "CL=F",
-    "🇺🇸 국채 10년": "^TNX",
-    "🏢 삼성전자": "005930.KS",
-    "🍎 애플": "AAPL"
+    "💵 원/달러 환율": "KRW=X",
+    "🇨🇳 위안/달러": "CNY=X"
 }
 
 @st.cache_data(ttl=300)
@@ -111,6 +121,7 @@ def get_market_data(period="1mo", interval="1d"):
     return data_dict
 
 def draw_chart(name, df):
+    # 등락 색상
     if len(df) > 1:
         color = '#ff4b4b' if df['Close'].iloc[-1] >= df['Close'].iloc[0] else '#4b7bff'
     else:
@@ -136,7 +147,7 @@ def draw_chart(name, df):
 # [기능 2] 뉴스 수집 (Google RSS)
 # ---------------------------------------------------------
 def get_real_news():
-    rss_url = "https://news.google.com/rss/search?q=경제+주식+비트코인+미국증시&hl=ko&gl=KR&ceid=KR:ko"
+    rss_url = "https://news.google.com/rss/search?q=경제+주식+채권+비트코인+선물&hl=ko&gl=KR&ceid=KR:ko"
     try:
         feed = feedparser.parse(rss_url)
         news_list = []
@@ -178,12 +189,19 @@ def get_ai_analysis(market_summary_text):
         pass 
 
     url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
+    
     prompt = f"""
-    너는 글로벌 자산운용사 수석 매니저야. 
-    아래 시장 데이터를 보고, 40대 투자자를 위한 포트폴리오 관점의 브리핑을 작성해줘.
+    너는 글로벌 매크로 전략가야. 아래 데이터를 바탕으로 시장 브리핑을 작성해줘.
+    
     [데이터] {market_summary_text}
-    [필수 포함] 1. 비트코인 및 암호화폐 방향성 2. 한국/미국 증시 비교 3. '오늘의 투자 포인트' 3가지
-    [형식] 중요 숫자는 **볼드체**, 마크다운.
+    
+    [필수 포함 내용]
+    1. **선물 시장 동향:** S&P500/나스닥 선물 흐름과 Risk On/Off 판단
+    2. **채권 및 금리:** 미국 10년물 금리 변화가 시장에 미치는 영향
+    3. **크립토:** 비트코인 흐름과 기술주와의 상관관계
+    4. **전략:** 보수적 투자자를 위한 오늘의 대응 전략 (한 줄 요약)
+    
+    [형식] 마크다운, 중요 수치는 볼드체.
     """
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
@@ -205,7 +223,7 @@ period_option = st.sidebar.radio("", ('1일', '1개월', '3개월', '1년', '3�
 period_map = {'1일': '1d', '1개월': '1mo', '3개월': '3mo', '1년': '1y', '3년': '3y'}
 interval_map = {'1일': '30m', '1개월': '1d', '3개월': '1d', '1년': '1d', '3년': '1wk'}
 
-with st.spinner('데이터 동기화 중...'):
+with st.spinner('글로벌 선물/채권 데이터 수집 중...'):
     market_data = get_market_data(period_map[period_option], interval_map[period_option])
 
 tab1, tab2, tab3 = st.tabs(["📊 마켓 대시보드", "📰 실시간 뉴스", "🤖 AI 인사이트"])
@@ -228,12 +246,12 @@ with tab1:
 
 # [탭 2] 뉴스
 with tab2:
-    st.markdown("### 🌍 주요 금융 뉴스 (Google News)")
+    st.markdown("### 🌍 글로벌 금융 헤드라인")
     news_items = get_real_news()
     if news_items:
         for n in news_items:
             st.markdown(f"""
-            <div style="background-color: #1E2126; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #FF4B4B; transition: 0.3s;">
+            <div style="background-color: #1E2126; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #FF4B4B;">
                 <a href="{n['link']}" target="_blank" class="news-link">
                     <div style="font-size: 16px; font-weight: bold; margin-bottom: 5px; color: #FFFFFF;">
                         {n['title']}
@@ -248,14 +266,14 @@ with tab2:
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.warning("뉴스를 가져오지 못했습니다. 잠시 후 다시 시도해주세요.")
+        st.warning("뉴스를 가져오지 못했습니다.")
 
 # [탭 3] AI 분석
 with tab3:
-    st.markdown("### 🚀 AI 마켓 인텔리전스")
-    st.info("실시간 데이터를 바탕으로 AI가 시장 흐름을 분석합니다.")
+    st.markdown("### 🚀 AI 매크로 브리핑")
+    st.info("선물, 채권, 환율 데이터를 종합하여 시장을 분석합니다.")
     if st.button("AI 브리핑 생성하기"):
-        with st.spinner("분석 리포트 작성 중..."):
+        with st.spinner("Gemini Pro가 시장을 분석 중입니다..."):
             summary_txt = ""
             for name, df in market_data.items():
                 if not df.empty:
