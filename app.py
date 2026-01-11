@@ -4,61 +4,79 @@ import pandas as pd
 import requests
 import datetime
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import json  # [수정5] 에러 해결을 위해 import 추가
 
-# 1. 페이지 설정 (Dark Mode 친화적)
-st.set_page_config(page_title="Pro 경제 대시보드 v2.0", layout="wide", page_icon="📈")
+# 1. 페이지 설정
+st.set_page_config(page_title="Pro 경제 대시보드 v2.1", layout="wide", page_icon="📈")
 
-# Streamlit 스타일 커스텀 (강제 다크모드 느낌)
+# 2. 커스텀 CSS (폰트 확대, 버튼 스타일, 다크모드)
 st.markdown("""
     <style>
+    /* 전체 배경 다크모드 고정 */
     .stApp {
         background-color: #0E1117;
         color: #FAFAFA;
     }
-    /* 탭 글씨 크기 키우기 */
-    button[data-baseweb="tab"] {
-        font-size: 20px;
-        font-weight: bold;
+    
+    /* [수정1] 탭 메뉴 폰트 확대 (15px 이상) */
+    button[data-baseweb="tab"] div p {
+        font-size: 20px !important;
+        font-weight: 700 !important;
+    }
+    
+    /* [수정4] 버튼이 잘 보이도록 강제 스타일링 */
+    div.stButton > button {
+        background-color: #FF4B4B !important;
+        color: white !important;
+        font-size: 16px !important;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        width: 100%;
+    }
+    div.stButton > button:hover {
+        background-color: #FF2B2B !important;
+        color: white !important;
+        border: 1px solid white;
     }
     </style>
     """, unsafe_allow_html=True)
 
 st.title(f"📈 Pro Global Market Dashboard")
-st.markdown(f"**{datetime.date.today()}** 기준 | 암호화폐, ETF, 주요지수 통합 분석")
+st.markdown(f"**{datetime.date.today()}** 기준 | 암호화폐, ETF, 국내외 증시 통합 분석")
 
-# 사이드바: API 키 및 설정
+# 사이드바: API 키
 api_key = st.secrets.get("GOOGLE_API_KEY")
 if not api_key:
     st.error("설정(Secrets)에서 Google API 키를 넣어주세요.")
     st.stop()
 
 # ---------------------------------------------------------
-# [기능 1] 데이터 수집 및 차트 그리기 함수
+# [기능 1] 데이터 수집 및 차트 (종목 추가 및 배열 변경)
 # ---------------------------------------------------------
 
-# 종목 리스트 정의 (이름: 티커)
+# [수정2] 코스피, 코스닥 포함한 자산 리스트
 ASSETS = {
-    "🇺🇸 S&P 500 (SPY)": "SPY",
-    "🇺🇸 나스닥 100 (QQQ)": "QQQ",
-    "🪙 비트코인 (BTC)": "BTC-USD",
-    "💎 이더리움 (ETH)": "ETH-USD",
-    "🇰🇷 원/달러 환율": "KRW=X",
+    "🇰🇷 코스피 (KOSPI)": "^KS11",
+    "🇰🇷 코스닥 (KOSDAQ)": "^KQ11",
+    "🇺🇸 S&P 500": "SPY",
+    "🇺🇸 나스닥 100": "QQQ",
+    "🪙 비트코인": "BTC-USD",
+    "💎 이더리움": "ETH-USD",
+    "💵 원/달러 환율": "KRW=X",
     "🥇 금 선물": "GC=F",
     "🛢️ WTI 원유": "CL=F",
-    "🇺🇸 미국채 10년물": "^TNX",
+    "🇺🇸 미국채 10년": "^TNX",
     "🏢 삼성전자": "005930.KS",
-    "🍎 애플 (AAPL)": "AAPL",
-    "🇹🇼 TSMC": "TSM"
+    "🍎 애플": "AAPL"
 }
 
-@st.cache_data(ttl=300) # 5분마다 갱신
+@st.cache_data(ttl=300)
 def get_market_data(period="1mo", interval="1d"):
     data_dict = {}
     for name, ticker in ASSETS.items():
         try:
             stock = yf.Ticker(ticker)
-            # 1일 데이터는 분 단위로, 나머지는 일 단위로
             if period == "1d":
                 hist = stock.history(period="1d", interval="30m")
             else:
@@ -70,9 +88,9 @@ def get_market_data(period="1mo", interval="1d"):
             continue
     return data_dict
 
-# 차트 그리기 함수 (Plotly 사용)
+# 차트 그리기 함수
 def draw_chart(name, df):
-    # 등락에 따른 색상 결정 (상승: 빨강, 하락: 파랑 - 한국식 / 미국식은 반대지만 한국인에 맞춤)
+    # 색상 결정 (한국식: 상승=빨강, 하락=파랑)
     if len(df) > 1:
         color = '#ff4b4b' if df['Close'].iloc[-1] >= df['Close'].iloc[0] else '#4b7bff'
     else:
@@ -80,157 +98,180 @@ def draw_chart(name, df):
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=df.index, 
-        y=df['Close'], 
-        mode='lines', 
-        name=name,
+        x=df.index, y=df['Close'], mode='lines', name=name,
         line=dict(color=color, width=2)
     ))
     
-    # 차트 디자인 (검은 배경)
     fig.update_layout(
-        title=dict(text=f"{name} 추이", font=dict(color="white")),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        xaxis=dict(showgrid=False, color="white"),
+        title=dict(text=f"{name}", font=dict(color="white", size=14)),
+        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(showgrid=False, showticklabels=False), # X축 간소화
         yaxis=dict(showgrid=True, gridcolor='#333333', color="white"),
-        margin=dict(l=20, r=20, t=40, b=20),
-        height=300
+        margin=dict(l=10, r=10, t=30, b=10),
+        height=200 # 차트 높이 조정
     )
     return fig
 
 # ---------------------------------------------------------
-# [기능 2] 뉴스 수집 함수 (링크 포함)
+# [기능 2] 뉴스 수집 함수 (버그 수정됨)
 # ---------------------------------------------------------
 def get_real_news():
     news_list = []
-    # 뉴스 검색용 주요 티커 몇 개만 선정
-    targets = ["SPY", "BTC-USD", "AAPL", "005930.KS"] 
+    # 뉴스 검색용 티커 (대표성 있는 것들)
+    targets = ["^KS11", "SPY", "BTC-USD", "005930.KS"] 
     
     for t in targets:
         try:
             ticker = yf.Ticker(t)
             news = ticker.news
             if news:
-                for n in news[:2]: # 종목당 최신 2개만
+                for n in news[:2]: # 종목당 2개씩
+                    # [수정3] 뉴스 데이터 파싱 안전장치 추가
+                    title = n.get('title', '제목 없음')
+                    link = n.get('link', '#')
+                    publisher = n.get('publisher', 'Unknown')
+                    
+                    # 시간 변환 로직 수정
+                    pub_time = n.get('providerPublishTime')
+                    if pub_time:
+                        time_str = datetime.datetime.fromtimestamp(pub_time).strftime('%Y-%m-%d %H:%M')
+                    else:
+                        time_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+
+                    # 중복 제거를 위해 리스트에 추가
                     news_list.append({
-                        "title": n.get('title'),
-                        "publisher": n.get('publisher'),
-                        "link": n.get('link'),
-                        "time": datetime.datetime.fromtimestamp(n.get('providerPublishTime', 0)).strftime('%Y-%m-%d %H:%M')
+                        "title": title,
+                        "publisher": publisher,
+                        "link": link,
+                        "time": time_str
                     })
         except:
             continue
-    return news_list
+            
+    # 최신순 정렬 (날짜 문자열 기준 역순)
+    news_list.sort(key=lambda x: x['time'], reverse=True)
+    return news_list[:15] # 최대 15개만 표시
 
 # ---------------------------------------------------------
-# [기능 3] AI 요약 함수 (이전과 동일하지만 강화됨)
+# [기능 3] AI 분석 함수 (JSON 에러 수정됨)
 # ---------------------------------------------------------
 def get_ai_analysis(market_summary_text):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+    # [수정5] json 모듈 사용을 위해 상단에 import json 추가 완료
+    
+    # 1. 사용 가능한 모델 찾기
+    model_name = "gemini-pro" # 기본값
+    check_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        check_res = requests.get(check_url)
+        if check_res.status_code == 200:
+            models = check_res.json().get('models', [])
+            for m in models:
+                if 'generateContent' in m.get('supportedGenerationMethods', []):
+                    # flash 모델 우선, 없으면 pro
+                    if 'flash' in m['name']:
+                        model_name = m['name']
+                        break
+                    if 'pro' in m['name']:
+                        model_name = m['name']
+    except:
+        pass # 실패하면 gemini-pro 사용
+
+    # 2. 분석 요청
+    url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
     
     prompt = f"""
-    너는 억만장자 펀드매니저야. 아래 시장 데이터를 보고 브리핑해줘.
+    너는 글로벌 투자 전문가야. 아래 데이터를 보고 브리핑해줘.
     
     [시장 데이터]
     {market_summary_text}
     
     [요청사항]
-    1. 비트코인/이더리움 등 암호화폐 흐름과 ETF(SPY, QQQ) 동향을 꼭 포함할 것.
-    2. 전체적인 시장 분위기(Risk On/Off)를 판단해줘.
-    3. 말투는 전문가스럽게, 마크다운으로 작성해줘.
+    1. 코스피/코스닥 등 한국 시장과 비트코인 흐름을 연결해서 분석할 것.
+    2. 상승/하락 원인을 추론하고 투자자 대응 전략을 짧게 제시할 것.
+    3. 중요 수치는 볼드체로, 가독성 좋게 마크다운으로 작성해줘.
     """
     
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    
     try:
         res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(payload))
         if res.status_code == 200:
-            return res.json()['candidates'][0]['content']['parts'][0]['text']
+            return f"✅ **분석 모델: {model_name}**\n\n" + res.json()['candidates'][0]['content']['parts'][0]['text']
         else:
-            return "AI 분석 실패"
+            return f"⚠️ 분석 실패: {res.text}"
     except Exception as e:
-        return f"에러: {str(e)}"
+        return f"⚠️ 에러 발생: {str(e)}"
 
 # =========================================================
-# 메인 화면 구성
+# 메인 화면
 # =========================================================
 
-# 1. 기간 선택 버튼 (상단 배치)
-st.sidebar.header("⚙️ 차트 설정")
-period_option = st.sidebar.radio(
-    "조회 기간 선택", 
-    ('1일', '1개월', '3개월', '1년', '3년'),
-    index=1
-)
+# 상단: 기간 선택
+st.sidebar.header("⚙️ 차트 기간 설정")
+period_option = st.sidebar.radio("기간 선택", ('1일', '1개월', '3개월', '1년', '3년'), index=1)
 
-# 선택에 따른 yfinance 파라미터 변환
 period_map = {'1일': '1d', '1개월': '1mo', '3개월': '3mo', '1년': '1y', '3년': '3y'}
 interval_map = {'1일': '30m', '1개월': '1d', '3개월': '1d', '1년': '1d', '3년': '1wk'}
 
-selected_period = period_map[period_option]
-selected_interval = interval_map[period_option]
+with st.spinner('데이터 수집 중...'):
+    market_data = get_market_data(period_map[period_option], interval_map[period_option])
 
-# 2. 데이터 로딩
-with st.spinner('글로벌 시장 데이터를 긁어오는 중입니다...'):
-    market_data = get_market_data(selected_period, selected_interval)
-
-# 3. 탭 구성 (대시보드 / 뉴스 / AI 분석)
+# 탭 구성
 tab1, tab2, tab3 = st.tabs(["📊 마켓 대시보드", "📰 실시간 뉴스", "🤖 AI 인사이트"])
 
-# [탭 1] 차트 대시보드
+# [탭 1] 대시보드 (4열 배열 수정)
 with tab1:
-    # 2열로 배치
-    col1, col2 = st.columns(2)
+    # [수정3] 4개 열 생성
+    cols = st.columns(4) 
     
     idx = 0
     for name, df in market_data.items():
-        # 현재가와 등락률 계산
         if len(df) > 0:
-            curr_price = df['Close'].iloc[-1]
-            if len(df) > 1:
-                prev_price = df['Close'].iloc[0] # 기간 내 시가 기준 등락
-                pct_change = ((curr_price - prev_price) / prev_price) * 100
-            else:
-                pct_change = 0.0
+            curr = df['Close'].iloc[-1]
+            prev = df['Close'].iloc[0]
+            pct = ((curr - prev) / prev) * 100
             
-            # 메트릭 표시 + 차트
-            container = col1 if idx % 2 == 0 else col2
-            with container:
-                st.metric(label=name, value=f"{curr_price:,.2f}", delta=f"{pct_change:.2f}%")
+            # 4열로 순차적 배치 (idx % 4)
+            with cols[idx % 4]:
+                st.metric(label=name, value=f"{curr:,.2f}", delta=f"{pct:.2f}%")
                 st.plotly_chart(draw_chart(name, df), use_container_width=True)
-                st.divider()
+                st.divider() # 구분선
             idx += 1
 
-# [탭 2] 실시간 뉴스 (클릭 가능)
+# [탭 2] 뉴스
 with tab2:
-    st.subheader("🌍 주요 외신 헤드라인 (Yahoo Finance)")
+    st.subheader("🌍 주요 뉴스 피드")
     news_items = get_real_news()
     
     if news_items:
         for n in news_items:
-            # 클릭 가능한 카드 형태로 표시
+            # 뉴스 카드 디자인
             st.markdown(f"""
-            <div style="background-color: #1E1E1E; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #FF4B4B;">
-                <a href="{n['link']}" target="_blank" style="text-decoration: none; color: white;">
-                    <h4 style="margin:0;">{n['title']}</h4>
+            <div style="background-color: #262730; padding: 15px; border-radius: 10px; margin-bottom: 12px; border-left: 5px solid #FF4B4B;">
+                <a href="{n['link']}" target="_blank" style="text-decoration: none; color: #FAFAFA;">
+                    <h4 style="margin:0; font-size:18px;">{n['title']}</h4>
                 </a>
-                <p style="color: gray; margin-top: 5px; font-size: 0.9em;">
-                    {n['publisher']} | {n['time']} <a href="{n['link']}" target="_blank">🔗 기사 원문 보기</a>
-                </p>
+                <div style="color: #A0A0A0; margin-top: 8px; font-size: 14px;">
+                    <span>📅 {n['time']}</span> | <span>📰 {n['publisher']}</span>
+                    <span style="float:right;"><a href="{n['link']}" target="_blank" style="color:#FF4B4B;">기사 원문 ></a></span>
+                </div>
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.info("현재 가져올 최신 뉴스가 없습니다.")
+        st.info("표시할 최신 뉴스가 없습니다.")
 
 # [탭 3] AI 분석
 with tab3:
-    if st.button("🚀 AI 마켓 브리핑 생성하기"):
-        with st.spinner("Gemini가 차트를 분석하고 있습니다..."):
-            # 요약용 데이터 텍스트 생성
+    st.markdown("### 🚀 AI 마켓 인텔리전스")
+    st.info("현재 차트 데이터를 기반으로 Gemini가 시장을 분석합니다.")
+    
+    # [수정4] CSS로 버튼 강제 스타일링 완료 (빨간색 배경)
+    if st.button("AI 마켓 브리핑 생성하기"):
+        with st.spinner("데이터 분석 및 리포트 작성 중..."):
             summary_txt = ""
             for name, df in market_data.items():
                 if not df.empty:
-                    summary_txt += f"{name}: 현재가 {df['Close'].iloc[-1]:.2f}\n"
+                    summary_txt += f"{name}: 현재 {df['Close'].iloc[-1]:.2f} (변동률 반영)\n"
             
             report = get_ai_analysis(summary_txt)
             st.markdown(report)
