@@ -5,12 +5,12 @@ import requests
 import datetime
 import plotly.graph_objects as go
 import json
-import feedparser # [뉴스 해결사] 구글 뉴스 연동 도구
+import feedparser
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Pro 경제 대시보드 v2.2", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Pro 경제 대시보드 v2.3", layout="wide", page_icon="📈")
 
-# 2. 커스텀 CSS (폰트 사이즈 14, 흰색, 뉴스 링크 스타일)
+# 2. 커스텀 CSS (폰트 색상 강제 White 적용)
 st.markdown("""
     <style>
     /* 전체 배경 다크모드 */
@@ -19,7 +19,16 @@ st.markdown("""
         color: #FAFAFA;
     }
     
-    /* [수정1] 탭 메뉴: 폰트 14px, 흰색(White) */
+    /* [수정 요청] 금융지표 텍스트(제목, 숫자) 강제 흰색 적용 */
+    [data-testid="stMetricLabel"] {
+        color: #FFFFFF !important;
+        font-size: 14px !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: #FFFFFF !important;
+    }
+
+    /* 탭 메뉴: 폰트 14px, 흰색 */
     button[data-baseweb="tab"] div p {
         font-size: 14px !important;
         font-weight: 600 !important;
@@ -46,7 +55,7 @@ st.markdown("""
         border: 1px solid white;
     }
     
-    /* 뉴스 카드 링크 스타일 (밑줄 제거) */
+    /* 뉴스 카드 링크 스타일 */
     a.news-link {
         text-decoration: none !important;
         color: #FAFAFA !important;
@@ -124,19 +133,14 @@ def draw_chart(name, df):
     return fig
 
 # ---------------------------------------------------------
-# [기능 2] 뉴스 수집 (구글 RSS 방식으로 전면 교체)
+# [기능 2] 뉴스 수집 (Google RSS)
 # ---------------------------------------------------------
 def get_real_news():
-    # [수정2] 구글 뉴스 RSS 사용 (한국어, 경제/금융/비트코인 키워드)
-    # yfinance 대신 이 방식을 쓰면 제목/링크가 100% 보장됩니다.
     rss_url = "https://news.google.com/rss/search?q=경제+주식+비트코인+미국증시&hl=ko&gl=KR&ceid=KR:ko"
-    
     try:
         feed = feedparser.parse(rss_url)
         news_list = []
-        
-        for entry in feed.entries[:20]: # 20개 가져오기
-            # 날짜 포맷팅
+        for entry in feed.entries[:20]:
             try:
                 dt = datetime.datetime(*entry.published_parsed[:6])
                 time_str = dt.strftime('%Y-%m-%d %H:%M')
@@ -157,7 +161,6 @@ def get_real_news():
 # [기능 3] AI 분석
 # ---------------------------------------------------------
 def get_ai_analysis(market_summary_text):
-    # 모델 자동 탐색
     model_name = "gemini-pro"
     check_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     try:
@@ -175,25 +178,14 @@ def get_ai_analysis(market_summary_text):
         pass 
 
     url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
-    
     prompt = f"""
     너는 글로벌 자산운용사 수석 매니저야. 
     아래 시장 데이터를 보고, 40대 투자자를 위한 포트폴리오 관점의 브리핑을 작성해줘.
-    
-    [데이터]
-    {market_summary_text}
-    
-    [필수 포함]
-    1. 비트코인 및 암호화폐 시장의 방향성
-    2. 한국 증시(코스피/코스닥)와 미국 증시의 디커플링 여부
-    3. '오늘의 투자 포인트' 3가지 요약
-    
-    [형식]
-    중요한 숫자는 **볼드체**. 가독성 좋은 마크다운.
+    [데이터] {market_summary_text}
+    [필수 포함] 1. 비트코인 및 암호화폐 방향성 2. 한국/미국 증시 비교 3. '오늘의 투자 포인트' 3가지
+    [형식] 중요 숫자는 **볼드체**, 마크다운.
     """
-    
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    
     try:
         res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(payload))
         if res.status_code == 200:
@@ -207,7 +199,6 @@ def get_ai_analysis(market_summary_text):
 # 메인 화면
 # =========================================================
 
-# 상단: 기간 선택
 st.sidebar.header("⚙️ 기간 설정")
 period_option = st.sidebar.radio("", ('1일', '1개월', '3개월', '1년', '3년'), index=1)
 
@@ -217,7 +208,6 @@ interval_map = {'1일': '30m', '1개월': '1d', '3개월': '1d', '1년': '1d', '
 with st.spinner('데이터 동기화 중...'):
     market_data = get_market_data(period_map[period_option], interval_map[period_option])
 
-# 탭 구성 (폰트 14 적용됨)
 tab1, tab2, tab3 = st.tabs(["📊 마켓 대시보드", "📰 실시간 뉴스", "🤖 AI 인사이트"])
 
 # [탭 1] 대시보드
@@ -236,15 +226,12 @@ with tab1:
                 st.divider()
             idx += 1
 
-# [탭 2] 뉴스 (수정사항 반영: 클릭 시 새 창 이동)
+# [탭 2] 뉴스
 with tab2:
     st.markdown("### 🌍 주요 금융 뉴스 (Google News)")
     news_items = get_real_news()
-    
     if news_items:
         for n in news_items:
-            # [수정3] target="_blank"를 확실하게 넣어 새 창 열기 구현
-            # 카드 전체를 클릭할 수 있게 HTML 구성
             st.markdown(f"""
             <div style="background-color: #1E2126; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #FF4B4B; transition: 0.3s;">
                 <a href="{n['link']}" target="_blank" class="news-link">
@@ -267,13 +254,11 @@ with tab2:
 with tab3:
     st.markdown("### 🚀 AI 마켓 인텔리전스")
     st.info("실시간 데이터를 바탕으로 AI가 시장 흐름을 분석합니다.")
-    
     if st.button("AI 브리핑 생성하기"):
         with st.spinner("분석 리포트 작성 중..."):
             summary_txt = ""
             for name, df in market_data.items():
                 if not df.empty:
                     summary_txt += f"{name}: {df['Close'].iloc[-1]:.2f}\n"
-            
             report = get_ai_analysis(summary_txt)
             st.markdown(report)
