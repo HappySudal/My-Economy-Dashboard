@@ -32,9 +32,7 @@ if "ai_report" not in st.session_state:
     st.session_state["ai_report"] = ""
 
 # API 키 설정
-api_key = st.secrets.get("GOOGLE_API_KEY")
-if not api_key:
-    api_key = st.sidebar.text_input("Google API Key를 입력하세요", type="password")
+api_key = "AIzaSyAEe4RzV2O63ZnwKrBdSk_UCmVsIn_sjIo"
 
 # ---------------------------------------------------------
 # [기능 1] 데이터 수집
