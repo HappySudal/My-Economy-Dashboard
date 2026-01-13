@@ -3,11 +3,12 @@ import yfinance as yf
 import pandas as pd
 import datetime
 import plotly.graph_objects as go
-import google.generativeai as genai
-import feedparser  # [추가] 안정적인 뉴스 수집을 위한 라이브러리
+import requests
+import json
+import xml.etree.ElementTree as ET # 내장 라이브러리 (별도 설치 불필요)
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Pro 경제 대시보드 v2.4", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Pro 경제 대시보드 v3.0", layout="wide", page_icon="📈")
 
 # 2. 커스텀 CSS
 st.markdown("""
@@ -73,69 +74,88 @@ def draw_chart(name, df):
     return fig
 
 # ---------------------------------------------------------
-# [기능 2] 뉴스 수집 (Google RSS로 전면 교체 - 해결완료)
+# [기능 2] 뉴스 수집 (Requests + XML 파싱 직접 구현)
 # ---------------------------------------------------------
 def get_real_news():
-    # 구글 뉴스 (경제/금융) RSS 피드 URL (한국어)
+    # 구글 뉴스 RSS (한국 금융)
     rss_url = "https://news.google.com/rss/topics/CAAqIggKIhxDQkFTRDgwQ0lzZ3BeRVJ5Y3R5Z0J5Z0pFLAo?hl=ko&gl=KR&ceid=KR%3Ako"
+    
+    # [핵심] 브라우저인 척 속이는 헤더 (차단 방지)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     
     news_list = []
     try:
-        feed = feedparser.parse(rss_url)
-        for entry in feed.entries[:15]: # 최대 15개
-            title = entry.title
-            link = entry.link
-            publisher = entry.source.title if 'source' in entry else "Google News"
-            
-            # 날짜 파싱
-            if hasattr(entry, 'published_parsed'):
-                dt = datetime.datetime(*entry.published_parsed[:6])
-                # UTC to KST (대략적 변환)
-                dt = dt + datetime.timedelta(hours=9)
-                time_str = dt.strftime('%Y-%m-%d %H:%M')
-            else:
-                time_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-            
-            news_list.append({
-                "title": title, "publisher": publisher, "link": link, "time": time_str
-            })
+        response = requests.get(rss_url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            root = ET.fromstring(response.content)
+            # XML 파싱
+            for item in root.findall('.//item')[:15]:
+                title = item.find('title').text
+                link = item.find('link').text
+                pubDate = item.find('pubDate').text
+                source = item.find('source').text if item.find('source') is not None else "Google News"
+                
+                # 날짜 포맷 정리 (간단하게)
+                try:
+                    # pubDate 예: Tue, 13 Jan 2026 05:00:00 GMT
+                    time_str = pubDate.split(" +")[0]
+                except:
+                    time_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+
+                news_list.append({
+                    "title": title, "publisher": source, "link": link, "time": time_str
+                })
     except Exception as e:
+        # 에러 발생 시 빈 리스트 반환 (화면에 에러 로그 대신 '뉴스 없음' 표시)
         return []
         
     return news_list
 
 # ---------------------------------------------------------
-# [기능 3] AI 분석 (Gemini Pro로 변경 - 해결완료)
+# [기능 3] AI 분석 (REST API 직접 호출 - 라이브러리 미사용)
 # ---------------------------------------------------------
 def get_ai_analysis(market_summary_text):
     if not api_key:
         return "⚠️ 오류: Google API 키가 입력되지 않았습니다."
 
+    # [수정] 라이브러리 대신 HTTP 요청을 직접 보냅니다. (가장 확실한 방법)
+    # 모델: gemini-1.5-flash (2026년 기준 표준 모델)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    
+    headers = {'Content-Type': 'application/json'}
+    
+    prompt_text = f"""
+    당신은 월스트리트의 수석 투자 전략가입니다. 아래 시장 데이터를 바탕으로 전문적인 브리핑을 작성하세요.
+
+    [현재 시장 데이터]
+    {market_summary_text}
+
+    [작성 가이드]
+    1. **시장 동향 요약**: 코스피, 미국 증시, 암호화폐 간의 상관관계를 분석하세요.
+    2. **핵심 원인 분석**: 현재 상승 또는 하락을 이끄는 거시경제적 요인(환율, 금리 등)을 추론하세요.
+    3. **투자 전략**: 보수적 투자자와 공격적 투자자를 위한 대응 전략을 각각 한 줄로 제시하세요.
+    4. 중요 숫자는 **볼드체**로 표시하고, 가독성 높은 마크다운 형식을 사용하세요.
+    """
+    
+    data = {
+        "contents": [{
+            "parts": [{"text": prompt_text}]
+        }]
+    }
+    
     try:
-        # 공식 라이브러리 설정
-        genai.configure(api_key=api_key)
+        response = requests.post(url, headers=headers, data=json.dumps(data))
         
-        # [수정] 404 에러 해결을 위해 가장 안정적인 모델명 'gemini-pro' 사용
-        model = genai.GenerativeModel('gemini-pro')
-        
-        prompt = f"""
-        당신은 월스트리트의 수석 투자 전략가입니다. 아래 시장 데이터를 바탕으로 전문적인 브리핑을 작성하세요.
-
-        [현재 시장 데이터]
-        {market_summary_text}
-
-        [작성 가이드]
-        1. **시장 동향 요약**: 코스피, 미국 증시, 암호화폐 간의 상관관계를 분석하세요.
-        2. **핵심 원인 분석**: 현재 상승 또는 하락을 이끄는 거시경제적 요인(환율, 금리 등)을 추론하세요.
-        3. **투자 전략**: 보수적 투자자와 공격적 투자자를 위한 대응 전략을 각각 한 줄로 제시하세요.
-        4. 중요 숫자는 **볼드체**로 표시하고, 가독성 높은 마크다운 형식을 사용하세요.
-        """
-        
-        response = model.generate_content(prompt)
-        return f"✅ **Gemini Market Insight (Model: gemini-pro)**\n\n{response.text}"
-        
+        if response.status_code == 200:
+            result = response.json()
+            return f"✅ **Gemini Market Insight (v1.5 Flash)**\n\n" + result['candidates'][0]['content']['parts'][0]['text']
+        else:
+            return f"⚠️ **분석 실패 (HTTP {response.status_code})**: {response.text}"
+            
     except Exception as e:
-        return f"⚠️ **분석 실패**: {str(e)}\n\n(API 키가 유효한지 확인해주세요.)"
+        return f"⚠️ **연결 오류**: {str(e)}"
 
 # =========================================================
 # 메인 화면
@@ -165,7 +185,7 @@ with tab1:
             idx += 1
 
 with tab2:
-    st.subheader("🌍 주요 뉴스 피드 (Google Finance)")
+    st.subheader("🌍 주요 뉴스 피드 (Google Finance RSS)")
     news_items = get_real_news()
     if news_items:
         for n in news_items:
@@ -180,7 +200,7 @@ with tab2:
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.info("뉴스를 불러올 수 없습니다.")
+        st.warning("뉴스를 가져오는데 실패했습니다. (Google 차단 또는 네트워크 문제)")
 
 with tab3:
     st.markdown("### 🚀 AI 마켓 인텔리전스")
