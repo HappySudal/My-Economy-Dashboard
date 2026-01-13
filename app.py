@@ -3,10 +3,11 @@ import yfinance as yf
 import pandas as pd
 import datetime
 import plotly.graph_objects as go
-import google.generativeai as genai  # [핵심] 공식 라이브러리 사용
+import google.generativeai as genai
+import feedparser  # [추가] 안정적인 뉴스 수집을 위한 라이브러리
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Pro 경제 대시보드 v2.3", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Pro 경제 대시보드 v2.4", layout="wide", page_icon="📈")
 
 # 2. 커스텀 CSS
 st.markdown("""
@@ -72,28 +73,39 @@ def draw_chart(name, df):
     return fig
 
 # ---------------------------------------------------------
-# [기능 2] 뉴스 수집
+# [기능 2] 뉴스 수집 (Google RSS로 전면 교체 - 해결완료)
 # ---------------------------------------------------------
 def get_real_news():
+    # 구글 뉴스 (경제/금융) RSS 피드 URL (한국어)
+    rss_url = "https://news.google.com/rss/topics/CAAqIggKIhxDQkFTRDgwQ0lzZ3BeRVJ5Y3R5Z0J5Z0pFLAo?hl=ko&gl=KR&ceid=KR%3Ako"
+    
     news_list = []
-    for t in ["^KS11", "SPY", "BTC-USD", "005930.KS"]:
-        try:
-            ticker = yf.Ticker(t)
-            news = ticker.news
-            if news:
-                for n in news[:2]:
-                    title = n.get('title', '제목 없음')
-                    link = n.get('link', '#')
-                    publisher = n.get('publisher', 'Unknown')
-                    pub_time = n.get('providerPublishTime')
-                    time_str = datetime.datetime.fromtimestamp(pub_time).strftime('%Y-%m-%d %H:%M') if pub_time else datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-                    news_list.append({"title": title, "publisher": publisher, "link": link, "time": time_str})
-        except: continue
-    news_list.sort(key=lambda x: x['time'], reverse=True)
-    return news_list[:15]
+    try:
+        feed = feedparser.parse(rss_url)
+        for entry in feed.entries[:15]: # 최대 15개
+            title = entry.title
+            link = entry.link
+            publisher = entry.source.title if 'source' in entry else "Google News"
+            
+            # 날짜 파싱
+            if hasattr(entry, 'published_parsed'):
+                dt = datetime.datetime(*entry.published_parsed[:6])
+                # UTC to KST (대략적 변환)
+                dt = dt + datetime.timedelta(hours=9)
+                time_str = dt.strftime('%Y-%m-%d %H:%M')
+            else:
+                time_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+            
+            news_list.append({
+                "title": title, "publisher": publisher, "link": link, "time": time_str
+            })
+    except Exception as e:
+        return []
+        
+    return news_list
 
 # ---------------------------------------------------------
-# [기능 3] AI 분석 (공식 라이브러리 사용으로 수정됨)
+# [기능 3] AI 분석 (Gemini Pro로 변경 - 해결완료)
 # ---------------------------------------------------------
 def get_ai_analysis(market_summary_text):
     if not api_key:
@@ -103,8 +115,8 @@ def get_ai_analysis(market_summary_text):
         # 공식 라이브러리 설정
         genai.configure(api_key=api_key)
         
-        # 최신 모델 사용 (gemini-1.5-flash가 빠르고 안정적임)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # [수정] 404 에러 해결을 위해 가장 안정적인 모델명 'gemini-pro' 사용
+        model = genai.GenerativeModel('gemini-pro')
         
         prompt = f"""
         당신은 월스트리트의 수석 투자 전략가입니다. 아래 시장 데이터를 바탕으로 전문적인 브리핑을 작성하세요.
@@ -120,10 +132,10 @@ def get_ai_analysis(market_summary_text):
         """
         
         response = model.generate_content(prompt)
-        return f"✅ **Gemini Market Insight**\n\n{response.text}"
+        return f"✅ **Gemini Market Insight (Model: gemini-pro)**\n\n{response.text}"
         
     except Exception as e:
-        return f"⚠️ **분석 실패**: {str(e)}\n\n(API 키가 정확한지, 혹은 사용량이 초과되지 않았는지 확인해주세요.)"
+        return f"⚠️ **분석 실패**: {str(e)}\n\n(API 키가 유효한지 확인해주세요.)"
 
 # =========================================================
 # 메인 화면
@@ -153,7 +165,7 @@ with tab1:
             idx += 1
 
 with tab2:
-    st.subheader("🌍 주요 뉴스 피드")
+    st.subheader("🌍 주요 뉴스 피드 (Google Finance)")
     news_items = get_real_news()
     if news_items:
         for n in news_items:
@@ -168,7 +180,7 @@ with tab2:
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.info("뉴스가 없습니다.")
+        st.info("뉴스를 불러올 수 없습니다.")
 
 with tab3:
     st.markdown("### 🚀 AI 마켓 인텔리전스")
