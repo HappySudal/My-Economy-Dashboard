@@ -32,7 +32,7 @@ if "ai_report" not in st.session_state:
     st.session_state["ai_report"] = ""
 
 # API 키 설정
-api_key = "AIzaSyAEe4RzV2O63ZnwKrBdSk_UCmVsIn_sjIo"
+api_key = "AIzaSyCl0mkyIAWosTmjRRn1LuSOXBtzxF2z0HU"
 
 # ---------------------------------------------------------
 # [기능 1] 데이터 수집
